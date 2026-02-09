@@ -1,7 +1,7 @@
 # High Level Analyzer
 # For more information and documentation, please go to https://support.saleae.com/extensions/high-level-analyzer-extensions
 
-from saleae.analyzers import HighLevelAnalyzer, AnalyzerFrame, StringSetting, NumberSetting, ChoicesSetting
+from saleae.analyzers import HighLevelAnalyzer, AnalyzerFrame, ChoicesSetting
 from pathlib import Path
 
 import sys
@@ -40,6 +40,10 @@ def reverse_bits_16bit(x):
     return result
 
 class Hla(HighLevelAnalyzer):
+    protocol_mode = ChoicesSetting(
+        ['DroneCAN', 'MAVLINK (WIP)'],  
+        label='Protocol'          
+    )
 
     result_types = {
     'Full-Frame':{

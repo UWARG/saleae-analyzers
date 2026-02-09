@@ -17,7 +17,7 @@ To import extension into logic,
 With Saleae Logic open,
 
 1. Click on 'Analyzers' on the right toolbar
-2. Click the + button on the toolbar that pops up and then click on 'DroneCAN_HLA'.
+2. Click the + button on the toolbar that pops up and then click on 'UWARG_Analyzer'.
 3. Choose its input analyzer and then press Save to use the extension.
 
-Wait for a few seconds and then DroneCAN_HLA Channel should populate.
+Wait for a few seconds and then UWARG_Analyzer Channel should populate.
