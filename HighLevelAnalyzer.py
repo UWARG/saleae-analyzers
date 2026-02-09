@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import os
 import re
+import json
 
 from pathlib import Path
 
@@ -16,22 +17,20 @@ if lib_path not in sys.path:
 
 import dronecan
 
-def find_files_by_number(target_number):
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    root_dir = os.path.join(script_dir, 'dsdl_specs')
-    matched_files = []
-    pattern = re.compile(rf'^{target_number}\..+')
+# Create a JSON Lookup on Runtime, access it on each get_message_name call
+_LOOKUP = {}
+try:
+    base_dir = os.path.dirname(__file__)
+    json_path = os.path.join(base_dir, 'dsdl_lookup.json')
 
-    for dirpath, _, filenames in os.walk(root_dir):
-        for filename in filenames:
-            if pattern.match(filename):
-                matched_files.append(os.path.join(dirpath, filename))
+    with open(json_path, 'r') as f:
+        _LOOKUP = json.load(f)
 
-    if not matched_files:
-        return "whoops"
-    filename = os.path.basename(matched_files[0])  
-    parts = filename.split('.')  
-    return parts[1]
+except Exception as e:
+    print("Failed to load DSDL lookup:", e)
+
+def get_message_name(target_number):
+        return _LOOKUP.get(str(target_number), "Unknown Message")
 
 def reverse_bits_16bit(x):
     result = 0
@@ -90,14 +89,14 @@ class Hla(HighLevelAnalyzer):
                 
                 if not current_service and current_source_node_id:
                     current_message_data = value >> 8 & 0xFFFF
-                    message_name = find_files_by_number(current_message_data)
+                    message_name = get_message_name(current_message_data)
                     
                     current_message_type = 'Standard Message'
 
                 elif current_service and current_source_node_id:
                     current_message_data = value >> 16 & 0xFF
                     current_destination_node_id = value >> 8 & 0x7F
-                    message_name = find_files_by_number(current_message_data)
+                    message_name = get_message_name(current_message_data)
                     if value >> 15 & 0x01:
                         current_message_type = 'Request Message'
 
@@ -109,7 +108,7 @@ class Hla(HighLevelAnalyzer):
                     current_message_data = value >> 8 & 0x3
                     current_message_type = 'Anonymous Message'
                     current_discriminator = value >> 10 & 0x3FFF
-                    message_name = find_files_by_number(current_message_data)
+                    message_name = get_message_name(current_message_data)
                     
                 
                 else: 
