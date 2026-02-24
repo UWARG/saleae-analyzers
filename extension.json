@@ -14,7 +14,7 @@
     "key": "protocol_mode",
     "name": "Protocol",
     "type": "choices",
-    "choices": ["DroneCAN", "MAVLINK (WIP)"],
+    "choices": ["DroneCAN", "MAVLink 1", "MAVLink 2"],
     "default": "DroneCAN"
   }
 }

@@ -1,12 +1,10 @@
-# High Level Analyzer
-# For more information and documentation, please go to https://support.saleae.com/extensions/high-level-analyzer-extensions
-
+# UWARG High Level Analyzer
 from saleae.analyzers import HighLevelAnalyzer, AnalyzerFrame, ChoicesSetting
 from pathlib import Path
 
+import io
 import sys
 import os
-import re
 import json
 
 from pathlib import Path
@@ -16,6 +14,10 @@ if lib_path not in sys.path:
     sys.path.append(lib_path)
 
 import dronecan
+
+# Assuming ArduPilotMega Dialect
+from pymavlink.dialects.v10 import ardupilotmega as mavlink1
+from pymavlink.dialects.v20 import ardupilotmega as mavlink2
 
 # Create a JSON Lookup on Runtime, access it on each get_message_name call
 _LOOKUP = {}
@@ -41,7 +43,7 @@ def reverse_bits_16bit(x):
 
 class Hla(HighLevelAnalyzer):
     protocol_mode = ChoicesSetting(
-        ['DroneCAN', 'MAVLINK (WIP)'],  
+        ['DroneCAN', 'MAVLink1', 'MAVLink2'],  
         label='Protocol'          
     )
 
@@ -53,7 +55,7 @@ class Hla(HighLevelAnalyzer):
     
 
     def __init__(self):
-        self.number_of_data_frames = None
+        self.number_of_data_frames = 0
         self.numb_msgs = None
         self.current_full_msg = None
         self.frame_start = None
@@ -68,10 +70,10 @@ class Hla(HighLevelAnalyzer):
         self.data = []
         self.frames = []
         self.id = None
+        self.mavlink_buf = b''
+        self.mavlink_started = False
 
-
-    def decode(self, frame: AnalyzerFrame):
-        
+    def decode_dronecan(self, frame: AnalyzerFrame):
         if frame.type == 'identifier_field':
             #print("checking if extended")
             if 'extended' in frame.data and frame.data['extended']:
@@ -174,5 +176,60 @@ class Hla(HighLevelAnalyzer):
                     'Name' : self.name,
                     'Data' : value
                 })
+    
+    def decode_mavlink(self, frame: AnalyzerFrame):
+        if frame.type == 'data_field':
+            raw = frame.data['data']
+            self.mavlink_buf += raw  # make sure self.mavlink_buf = b'' in __init__
+
+            # Track start time of the message
+            if not self.mavlink_started:
+                self.message_start = frame.start_time
+                self.mavlink_started = True
+
+        if frame.type == 'ack_field':
+            if not self.mavlink_buf:
+                return
+
+            try:
+                # pymavlink needs a file-like object -> wrap a dummy IO object
+                f = io.BytesIO()
+                
+                if self.protocol_mode == 'MAVLink2':
+                    mav = mavlink2.MAVLink(f)
+                else:
+                    mav = mavlink1.MAVLink(f)
+
+                # Parse byte by byte — parse_char accumulates internally
+                # and returns a message only when a complete one is found
+                result = None
+                for byte in self.mavlink_buf:
+                    msg = mav.parse_char(bytes([byte]))
+                    if msg is not None:
+                        result = msg
+
+                self.mavlink_buf = b''
+                self.mavlink_started = False
+
+                if result is not None:
+                    return AnalyzerFrame('Full-Frame', self.message_start, frame.end_time, {
+                        'Name': result.get_type(),
+                        'Data': str(result.to_dict())
+                    })
+
+            except Exception as e:
+                self.mavlink_buf = b''
+                self.mavlink_started = False
+                return AnalyzerFrame('Full-Frame', self.message_start, frame.end_time, {
+                    'Name': 'Error',
+                    'Data': f'Exception: {e}'
+                })
+        
+    def decode(self, frame: AnalyzerFrame):
+        if self.protocol_mode == 'DroneCAN':
+            return self.decode_dronecan(frame)
+        elif self.protocol_mode == 'MAVLink1' or self.protocol_mode == 'MAVLink2':
+            return self.decode_mavlink(frame)
+        
 
         
