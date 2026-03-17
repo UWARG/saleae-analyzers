@@ -66,12 +66,28 @@ class Hla(HighLevelAnalyzer):
     )
 
     result_types = {
-    'Full-Frame':{
-        'format': 'Full Msg, Name: {{data.Name}}, Data: {{data.Data}}'
+        # DroneCAN frame types — bubble shows: name | src | data
+        'Standard Message': {
+            'format': '{{data.Name}} | {{data.Source}} | {{data.Data}}'
+        },
+        'Request Message': {
+            'format': '{{data.Name}} | {{data.Source}} → {{data.Dest}} | {{data.Data}}'
+        },
+        'Response Message': {
+            'format': '{{data.Name}} | {{data.Source}} → {{data.Dest}} | {{data.Data}}'
+        },
+        'Anonymous Message': {
+            'format': '{{data.Name}} | {{data.Data}}'
+        },
+        'Decode Error': {
+            'format': 'Error | {{data.Name}} | {{data.Data}}'
+        },
+        # MAVLink frame type
+        'Full-Frame': {
+            'format': 'Full Msg, Name: {{data.Name}}, Data: {{data.Data}}'
         },
     }
     
-
     def __init__(self):
         self.number_of_data_frames = 0
         self.numb_msgs = None
@@ -85,6 +101,9 @@ class Hla(HighLevelAnalyzer):
         self.multi_message = None
         self.started = False
         self.name = None
+        self.message_type = None
+        self.source_node_id = None
+        self.dest_node_id = None
         self.data = []
         self.frames = []
         self.id = None
@@ -93,59 +112,58 @@ class Hla(HighLevelAnalyzer):
 
     def decode_dronecan(self, frame: AnalyzerFrame):
         if frame.type == 'identifier_field':
-            #print("checking if extended")
+            
             if 'extended' in frame.data and frame.data['extended']:
                 if(self.last_message):
                     self.frames = []
                     self.last_message = False
                 if(self.id != frame.data['identifier']):
                     self.frames =[]
+                
                 self.data = []
                 self.frame_start = frame.start_time
                 self.number_of_data_frames = 0
                 value = frame.data['identifier']
                 self.id = value
-                # Reads the first 5 bits of the identifier
                 current_service = value >> 7 & 0x01       
-                # Reads the service not bit 
                 current_source_node_id = value & 0x7F      
                 current_priority = value >> 24 & 0x1F  
                 
                 if not current_service and current_source_node_id:
                     current_message_data = value >> 8 & 0xFFFF
                     message_name = get_message_name(current_message_data)
-                    
                     current_message_type = 'Standard Message'
-
+                    current_destination_node_id = None
+ 
                 elif current_service and current_source_node_id:
                     current_message_data = value >> 16 & 0xFF
                     current_destination_node_id = value >> 8 & 0x7F
                     message_name = get_message_name(current_message_data)
                     if value >> 15 & 0x01:
                         current_message_type = 'Request Message'
-
                     else:
                         current_message_type = 'Response Message'
-
+ 
                 elif not current_service and not current_source_node_id:
-                    # Reads the data type id, which is the next 7 bits after the service not bit
                     current_message_data = value >> 8 & 0x3
                     current_message_type = 'Anonymous Message'
                     current_discriminator = value >> 10 & 0x3FFF
                     message_name = get_message_name(current_message_data)
+                    current_destination_node_id = None
                     
-                
                 else: 
                     current_message_data = None
                     current_message_type = 'Unknown Message Type'
+                    current_destination_node_id = None
+ 
                 self.name = message_name
-                    
-
+                self.message_type   = current_message_type
+                self.source_node_id = current_source_node_id
+                self.dest_node_id   = current_destination_node_id
+ 
         if frame.type == 'control_field':
-            #num = frame.data['num_data_bytes']
-            #self.data.append(num)
             self.numb_msgs = frame.data['num_data_bytes']
-
+ 
         if frame.type == 'data_field':
             num = frame.data['data']
             self.data.append(int.from_bytes(num, "little"))
@@ -165,11 +183,9 @@ class Hla(HighLevelAnalyzer):
                 self.last_message = True
             
         if frame.type == 'crc_field':
-            # Do Nothing for now, maybe add CRC checking later
             fn = 2
-
+ 
         if frame.type == 'ack_field':
-
             self.frames.append(dronecan.transport.Frame(
                     message_id = self.id,
                     data = self.data,
@@ -181,20 +197,34 @@ class Hla(HighLevelAnalyzer):
                 T = dronecan.transport.Transfer()
                 
                 try: 
-                    T.from_frames(self.frames)                 # Combines individual frames into a single transfer
-                    raw_yaml = dronecan.to_yaml(T.payload)     # Decodes message payload into raw YAML
-                    value = format_payload(raw_yaml)    
-    
+                    T.from_frames(self.frames)
+                    raw_yaml = dronecan.to_yaml(T.payload)
+                    value = format_payload(raw_yaml)
+                    had_error = False
+                        
                 except Exception:
-                    value = "Exception occured :("
+                    value = "Decode error"
+                    had_error = True
                 
                 self.multi_message = False
                 self.started = False
-                
-                return AnalyzerFrame(self.name, self.message_start, frame.end_time,{
-                    'Name' : self.name,
-                    'Data' : value
-                })
+ 
+                frame_type = 'Decode Error' if had_error else self.message_type
+ 
+                # Full dict 
+                frame_data = {
+                    'Name'   : self.name,
+                    'Type'   : self.message_type,
+                    'Source' : f'Node {self.source_node_id}',
+                    'Data'   : value,
+                }
+ 
+                # Dest only relevant for service messages
+                if self.dest_node_id is not None:
+                    frame_data['Dest'] = f'Node {self.dest_node_id}'
+ 
+                return AnalyzerFrame(frame_type, self.message_start, frame.end_time, frame_data)
+ 
     
     def decode_mavlink(self, frame: AnalyzerFrame):
         if frame.type == 'data_field':
