@@ -3,6 +3,7 @@ from saleae.analyzers import HighLevelAnalyzer, AnalyzerFrame, ChoicesSetting
 from pathlib import Path
 
 import io
+import re
 import sys
 import os
 import json
@@ -40,6 +41,23 @@ def reverse_bits_16bit(x):
         if (x >> i) & 1:
             result |= 1 << (15 - i)
     return result
+
+# Cleans up the raw string from dronecan.to_yaml() into human readable text
+def format_payload(raw_yaml: str) -> str:
+    if not raw_yaml:
+        return ''
+
+    normalised = raw_yaml.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+    normalised = ' '.join(normalised.split())   # collapse any double-spaces
+
+    piped = re.sub(r'(\S)\s+(\w+:)', r'\1 | \2', normalised)
+
+    def trim_float(m):
+        return format(float(m.group()), '.2f').rstrip('0').rstrip('.') or '0'
+
+    piped = re.sub(r'\b\d+\.\d+\b', trim_float, piped)
+
+    return piped
 
 class Hla(HighLevelAnalyzer):
     protocol_mode = ChoicesSetting(
@@ -163,16 +181,17 @@ class Hla(HighLevelAnalyzer):
                 T = dronecan.transport.Transfer()
                 
                 try: 
-                    T.from_frames(self.frames)              # Combines individual frames into a single transfer
-                    value = dronecan.to_yaml(T.payload)     # Decodes message payload into YAML
-                        
+                    T.from_frames(self.frames)                 # Combines individual frames into a single transfer
+                    raw_yaml = dronecan.to_yaml(T.payload)     # Decodes message payload into raw YAML
+                    value = format_payload(raw_yaml)    
+    
                 except Exception:
                     value = "Exception occured :("
                 
                 self.multi_message = False
                 self.started = False
                 
-                return AnalyzerFrame('Full-Frame',self.message_start, frame.end_time,{
+                return AnalyzerFrame(self.name, self.message_start, frame.end_time,{
                     'Name' : self.name,
                     'Data' : value
                 })
@@ -230,6 +249,3 @@ class Hla(HighLevelAnalyzer):
             return self.decode_dronecan(frame)
         elif self.protocol_mode == 'MAVLink1' or self.protocol_mode == 'MAVLink2':
             return self.decode_mavlink(frame)
-        
-
-        
