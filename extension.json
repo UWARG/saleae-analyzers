@@ -1,13 +1,20 @@
 {
-  "name": "DroneCAN_HLA",
+  "name": "UWARG_Analyzer",
   "apiVersion": "1.0.0",
   "author": "UWARG",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "",
   "extensions": {
-    "DroneCAN_HLA": {
+    "UWARG_Analyzer": {
       "type": "HighLevelAnalyzer",
       "entryPoint": "HighLevelAnalyzer.Hla"
     }
+  },
+  "settings": {
+    "key": "protocol_mode",
+    "name": "Protocol",
+    "type": "choices",
+    "choices": ["DroneCAN", "MAVLink 1", "MAVLink 2"],
+    "default": "DroneCAN"
   }
 }
