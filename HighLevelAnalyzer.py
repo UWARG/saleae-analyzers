@@ -64,10 +64,6 @@ class Hla(HighLevelAnalyzer):
         'Decode Error': {
             'format': 'Error | {{data.Name}} | {{data.Data}}'
         },
-        # MAVLink frame type
-        'Full-Frame': {
-            'format': 'Full Msg, Name: {{data.Name}}, Data: {{data.Data}}'
-        },
     }
     
     def __init__(self):
@@ -163,7 +159,7 @@ class Hla(HighLevelAnalyzer):
                 self.last_message = True
             
         if frame.type == 'crc_field':
-            fn = 2
+            self.frame_crc = frame.data.get('crc', None)
  
         if frame.type == 'ack_field':
             self.frames.append(dronecan.transport.Frame(
@@ -173,37 +169,32 @@ class Hla(HighLevelAnalyzer):
                     canfd = False
                 ))
             
-            if(self.last_message and self.started):
+            if self.last_message and self.started:
                 T = dronecan.transport.Transfer()
-                
-                try: 
-                    T.from_frames(self.frames)
+
+                try:
+                    T.from_frames(self.frames)                      # also validates CRC and other invariants
                     raw_yaml = dronecan.to_yaml(T.payload)
                     value = format_payload(raw_yaml)
                     had_error = False
-                        
+
                 except Exception as e:
                     print("DECODE ERROR:", e)
                     value = str(e)
                     had_error = True
-                
-                self.multi_message = False
-                self.started = False
- 
+
                 frame_type = 'Decode Error' if had_error else self.message_type
- 
-                # Full dict 
+
                 frame_data = {
                     'Name'   : self.name,
                     'Type'   : self.message_type,
                     'Source' : f'Node {self.source_node_id}',
                     'Data'   : value,
                 }
- 
-                # Dest only relevant for service messages
+
                 if self.dest_node_id is not None:
                     frame_data['Dest'] = f'Node {self.dest_node_id}'
- 
+
                 return AnalyzerFrame(frame_type, self.message_start, frame.end_time, frame_data)
  
     def decode(self, frame: AnalyzerFrame):
