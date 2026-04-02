@@ -1,7 +1,7 @@
 {
   "name": "UWARG_Analyzer",
   "apiVersion": "1.0.0",
-  "author": "UWARG",
+  "author": "Waterloo Aerial Robotics Group",
   "version": "0.0.2",
   "description": "",
   "extensions": {
@@ -9,12 +9,5 @@
       "type": "HighLevelAnalyzer",
       "entryPoint": "HighLevelAnalyzer.Hla"
     }
-  },
-  "settings": {
-    "key": "protocol_mode",
-    "name": "Protocol",
-    "type": "choices",
-    "choices": ["DroneCAN", "MAVLink 1", "MAVLink 2"],
-    "default": "DroneCAN"
   }
 }
