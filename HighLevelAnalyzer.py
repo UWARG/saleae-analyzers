@@ -2,7 +2,6 @@
 from saleae.analyzers import HighLevelAnalyzer, AnalyzerFrame, ChoicesSetting
 from pathlib import Path
 
-import io
 import re
 import sys
 import os
@@ -15,10 +14,6 @@ if lib_path not in sys.path:
     sys.path.append(lib_path)
 
 import dronecan
-
-# Assuming ArduPilotMega Dialect
-from pymavlink.dialects.v10 import ardupilotmega as mavlink1
-from pymavlink.dialects.v20 import ardupilotmega as mavlink2
 
 # Create a JSON Lookup on Runtime, access it on each get_message_name call
 _LOOKUP = {}
@@ -35,36 +30,23 @@ except Exception as e:
 def get_message_name(target_number):
         return _LOOKUP.get(str(target_number), "Unknown Message")
 
-def reverse_bits_16bit(x):
-    result = 0
-    for i in range(16):
-        if (x >> i) & 1:
-            result |= 1 << (15 - i)
-    return result
-
-# Cleans up the raw string from dronecan.to_yaml() into human readable text
 def format_payload(raw_yaml: str) -> str:
-    if not raw_yaml:
-        return ''
+        if not raw_yaml:
+            return ''
 
-    normalised = raw_yaml.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
-    normalised = ' '.join(normalised.split())   # collapse any double-spaces
+        normalised = raw_yaml.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+        normalised = ' '.join(normalised.split())   # collapse any double-spaces
 
-    piped = re.sub(r'(\S)\s+(\w+:)', r'\1 | \2', normalised)
+        piped = re.sub(r'(\S)\s+(\w+:)', r'\1 | \2', normalised)
 
-    def trim_float(m):
-        return format(float(m.group()), '.2f').rstrip('0').rstrip('.') or '0'
+        def trim_float(m):
+            return format(float(m.group()), '.2f').rstrip('0').rstrip('.') or '0'
 
-    piped = re.sub(r'\b\d+\.\d+\b', trim_float, piped)
+        piped = re.sub(r'\b\d+\.\d+\b', trim_float, piped)
 
-    return piped
+        return piped
 
 class Hla(HighLevelAnalyzer):
-    protocol_mode = ChoicesSetting(
-        ['DroneCAN', 'MAVLink1', 'MAVLink2'],  
-        label='Protocol'          
-    )
-
     result_types = {
         # DroneCAN frame types — bubble shows: name | src | data
         'Standard Message': {
@@ -107,8 +89,6 @@ class Hla(HighLevelAnalyzer):
         self.data = []
         self.frames = []
         self.id = None
-        self.mavlink_buf = b''
-        self.mavlink_started = False
 
     def decode_dronecan(self, frame: AnalyzerFrame):
         if frame.type == 'identifier_field':
@@ -202,8 +182,9 @@ class Hla(HighLevelAnalyzer):
                     value = format_payload(raw_yaml)
                     had_error = False
                         
-                except Exception:
-                    value = "Decode error"
+                except Exception as e:
+                    print("DECODE ERROR:", e)
+                    value = str(e)
                     had_error = True
                 
                 self.multi_message = False
@@ -225,57 +206,5 @@ class Hla(HighLevelAnalyzer):
  
                 return AnalyzerFrame(frame_type, self.message_start, frame.end_time, frame_data)
  
-    
-    def decode_mavlink(self, frame: AnalyzerFrame):
-        if frame.type == 'data_field':
-            raw = frame.data['data']
-            self.mavlink_buf += raw  # make sure self.mavlink_buf = b'' in __init__
-
-            # Track start time of the message
-            if not self.mavlink_started:
-                self.message_start = frame.start_time
-                self.mavlink_started = True
-
-        if frame.type == 'ack_field':
-            if not self.mavlink_buf:
-                return
-
-            try:
-                # pymavlink needs a file-like object -> wrap a dummy IO object
-                f = io.BytesIO()
-                
-                if self.protocol_mode == 'MAVLink2':
-                    mav = mavlink2.MAVLink(f)
-                else:
-                    mav = mavlink1.MAVLink(f)
-
-                # Parse byte by byte — parse_char accumulates internally
-                # and returns a message only when a complete one is found
-                result = None
-                for byte in self.mavlink_buf:
-                    msg = mav.parse_char(bytes([byte]))
-                    if msg is not None:
-                        result = msg
-
-                self.mavlink_buf = b''
-                self.mavlink_started = False
-
-                if result is not None:
-                    return AnalyzerFrame('Full-Frame', self.message_start, frame.end_time, {
-                        'Name': result.get_type(),
-                        'Data': str(result.to_dict())
-                    })
-
-            except Exception as e:
-                self.mavlink_buf = b''
-                self.mavlink_started = False
-                return AnalyzerFrame('Full-Frame', self.message_start, frame.end_time, {
-                    'Name': 'Error',
-                    'Data': f'Exception: {e}'
-                })
-        
     def decode(self, frame: AnalyzerFrame):
-        if self.protocol_mode == 'DroneCAN':
-            return self.decode_dronecan(frame)
-        elif self.protocol_mode == 'MAVLink1' or self.protocol_mode == 'MAVLink2':
-            return self.decode_mavlink(frame)
+        return self.decode_dronecan(frame)

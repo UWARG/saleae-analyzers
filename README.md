@@ -1,6 +1,6 @@
-# Saleae Analyzers
+# UWARG Saleae Analyzers
 
-Saleae Logic 2 Extension to simplify decoding DroneCAN and MAVLink messages.
+Saleae Logic 2 Extension to simplify decoding DroneCAN messages.
 
 ## Usage
 
