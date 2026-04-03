@@ -64,6 +64,9 @@ class Hla(HighLevelAnalyzer):
         'Decode Error': {
             'format': 'Error | {{data.Name}} | {{data.Data}}'
         },
+        'Partial Frame':{ 
+            'format': 'Partial | {{data.Name}} | {{data.Source}} | {{data.Data}}' 
+        },  
     }
     
     def __init__(self):
@@ -169,33 +172,39 @@ class Hla(HighLevelAnalyzer):
                     canfd = False
                 ))
             
+            safe_start = self.message_start if self.message_start else self.frame_start
+
+            # If we never saw the message's start, but we did see the message, it's a partial frame
+            if self.last_message and not self.started:
+                return AnalyzerFrame('Partial Frame', safe_start, frame.end_time, {
+                    'Name': self.name or 'Unknown',
+                    'Source': f'Node {self.source_node_id}' if self.source_node_id else 'Unknown Source',
+                    'Data': f'{self.number_of_data_frames} Captured Data Frame(s)' if self.number_of_data_frames else 'No Data Frames'
+                })
+
             if self.last_message and self.started:
                 T = dronecan.transport.Transfer()
-
                 try:
-                    T.from_frames(self.frames)                      # also validates CRC and other invariants
+                    T.from_frames(self.frames)                    # also validates CRC and other invariants
                     raw_yaml = dronecan.to_yaml(T.payload)
                     value = format_payload(raw_yaml)
                     had_error = False
-
                 except Exception as e:
                     print("DECODE ERROR:", e)
                     value = str(e)
                     had_error = True
 
                 frame_type = 'Decode Error' if had_error else self.message_type
-
                 frame_data = {
-                    'Name'   : self.name,
-                    'Type'   : self.message_type,
-                    'Source' : f'Node {self.source_node_id}',
-                    'Data'   : value,
+                    'Name':   self.name,
+                    'Type':   self.message_type,
+                    'Source': f'Node {self.source_node_id}',
+                    'Data':   value,
                 }
-
                 if self.dest_node_id is not None:
                     frame_data['Dest'] = f'Node {self.dest_node_id}'
 
-                return AnalyzerFrame(frame_type, self.message_start, frame.end_time, frame_data)
+                return AnalyzerFrame(frame_type, safe_start, frame.end_time, frame_data)
  
     def decode(self, frame: AnalyzerFrame):
         return self.decode_dronecan(frame)
